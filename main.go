@@ -3,108 +3,98 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/jamiealquiza/tachymeter"
 )
 
 type Result struct {
-	statusCode   int
 	responseTime time.Duration
+	response     *http.Response
 }
 
-func get_url(url string, t *tachymeter.Tachymeter, c chan Result) {
+func get_url(url string, c chan Result) {
 
 	start := time.Now()
-	resp, err := http.Get(url)
+	timeout := time.Duration(13 * time.Second)
+
+	client := http.Client{
+		Timeout: timeout,
+	}
+
+	resp, err := client.Get(url)
 	if err != nil {
-		fmt.Println("Error with GET")
+		fmt.Println(err)
+		return
 	}
 	elapsed := time.Since(start)
 
-	t.AddTime(elapsed)
-
-	c <- Result{statusCode: resp.StatusCode, responseTime: elapsed}
+	if resp.StatusCode < 500 {
+		c <- Result{responseTime: elapsed, response: resp}
+	}
 
 	return
+}
+
+func doit(url string, concurrentRequests int) http.Response {
+
+	c := make(chan Result)
+
+	log.Printf("Making %d concurrent requests for %s\n", concurrentRequests, url)
+	for i := 0; i < concurrentRequests; i++ {
+		go get_url(url, c)
+	}
+
+	select {
+	case r := <-c:
+		log.Printf("Request fullilled in: %s with HTTP status code of %d\n", r.responseTime, r.response.StatusCode)
+		return *r.response
+
+	case <-time.After(3 * time.Second):
+		log.Println("Timeout: None of the concurrent request returned fast enough. Returning 504 Gateway timeout")
+		//		body := "Hello world"
+
+		return http.Response{
+			Status:     "504 Gateway Timeout",
+			StatusCode: 504,
+			Proto:      "HTTP/1.1",
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			// Body:          ioutil.NopCloser(bytes.NewBufferString(body)),
+			// ContentLength: int64(len(body)),
+			//Request: req,
+			Header: make(http.Header, 0),
+		}
+	}
+
 }
 
 func main() {
 
 	version := "1.0.0"
-
+	originPtr := flag.String("origin", "http://golliher.net/test", "URL to use at the origin. e.g. http://example.com")
 	samplesPtr := flag.Int("samples", 3, "Number of times to run the check against the target url")
-	verbosePtr := flag.Bool("verbose", false, "Enable verbose output.")
 	versionPtr := flag.Bool("version", false, "Prints the version")
 
 	flag.Parse()
-
-	if len(os.Args[1:]) < 1 {
-		fmt.Println("You must specify a target URL on the command line")
-		fmt.Printf("Usage:\n\tgo-urlchecker [-verbose] [-samples=3] http://example.com\n")
-		fmt.Printf("\nExample:\ngo-urlchecker -verbose -samples=5 http://example.com\n")
-		os.Exit(1)
-	}
 
 	if *versionPtr == true {
 		fmt.Printf("Version: %s\n", version)
 		os.Exit(0)
 	}
 
-	url := flag.Arg(0)
+	origin := *originPtr
 
-	c := make(chan Result)
-	t := tachymeter.New(&tachymeter.Config{Size: *samplesPtr})
+	log.Println("Starting up proxy: Defense against unreliable backend services")
+	log.Println("Version:", version)
+	log.Println("Proxying to origin:", origin)
+	log.Printf("Will make %d calls to origin and take the fastest non-500 response\n", *samplesPtr)
 
-	fmt.Println("URL response analyzer.")
-	fmt.Printf("Taking %d concurrent samples of %s\n", *samplesPtr, url)
-	for i := 0; i < *samplesPtr; i++ {
-		go get_url(url, t, c)
+	resp := doit(origin, *samplesPtr)
+	log.Println(resp)
 
-	}
-
-	ec := 0
-	responseCodes := make(map[int]int)
-	for i := 0; i < *samplesPtr; i++ {
-		r := <-c
-
-		responseCodes[r.statusCode]++
-
-		if *verbosePtr == true {
-			fmt.Printf("\tResult: %d\tElapsed Time: %s for %s\n", r.statusCode, r.responseTime, url)
-		} else {
-			fmt.Printf("x")
-		}
-
-		if r.statusCode >= 500 {
-			ec++
-		}
-	}
-
-	metrics := t.Calc()
-	fmt.Println("\nResponse time stats:")
-	fmt.Printf("  Max reponse time: %s\n", metrics.Time.Max)
-	fmt.Printf("  Min reponse time: %s\n", metrics.Time.Min)
-	fmt.Printf("  Median reponse time: %s\n", metrics.Time.P50)
-	fmt.Printf("  99P reponse time: %s\n\n", metrics.Time.P99)
-
-	fmt.Println("\nResponse time hisogram:")
-	fmt.Println(metrics.Histogram.String(25))
-
-	fmt.Println("Response code summary:")
-	for k, v := range responseCodes {
-		fmt.Printf("  %ds: %d\n", k, v)
-	}
-
-	ep := float64(float64(ec)/float64(*samplesPtr)) * 100
-
-	if ep > 0 {
-		fmt.Printf("ERRORS DETECTED:  There were %d errors over the sample size of %d (%.0f percent of request produced a 5xx code)\n", ec, *samplesPtr, ep)
-		fmt.Printf(" This indicates a problem that needs attention\n")
-	} else {
-		fmt.Println("No errors detected")
-	}
+	// Leaving off.. I now have a function that request a response object
+	// TODO: turn this into a proxy server
 
 }
