@@ -66,8 +66,12 @@ func main() {
 	}
 
 	ec := 0
+	responseCodes := make(map[int]int)
 	for i := 0; i < *samplesPtr; i++ {
 		r := <-c
+
+		responseCodes[r.statusCode]++
+
 		if *verbosePtr == true {
 			fmt.Printf("\tResult: %d\tElapsed Time: %s for %s\n", r.statusCode, r.responseTime, url)
 		} else {
@@ -80,11 +84,19 @@ func main() {
 	}
 
 	metrics := t.Calc()
-	fmt.Printf("\nMax reponse time: %s\n", metrics.Time.Max)
-	fmt.Printf("Min reponse time: %s\n", metrics.Time.Min)
-	fmt.Printf("Median reponse time: %s\n", metrics.Time.P50)
-	fmt.Printf("99P reponse time: %s\n\n", metrics.Time.P99)
+	fmt.Println("\nResponse time stats:")
+	fmt.Printf("  Max reponse time: %s\n", metrics.Time.Max)
+	fmt.Printf("  Min reponse time: %s\n", metrics.Time.Min)
+	fmt.Printf("  Median reponse time: %s\n", metrics.Time.P50)
+	fmt.Printf("  99P reponse time: %s\n\n", metrics.Time.P99)
+
+	fmt.Println("\nResponse time hisogram:")
 	fmt.Println(metrics.Histogram.String(25))
+
+	fmt.Println("Response code summary:")
+	for k, v := range responseCodes {
+		fmt.Printf("  %ds: %d\n", k, v)
+	}
 
 	ep := float64(float64(ec)/float64(*samplesPtr)) * 100
 
