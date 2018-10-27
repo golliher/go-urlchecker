@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/jamiealquiza/tachymeter"
@@ -16,7 +15,7 @@ type Result struct {
 	responseTime time.Duration
 }
 
-func get_url(url string, wg *sync.WaitGroup, t *tachymeter.Tachymeter, c chan Result) {
+func get_url(url string, t *tachymeter.Tachymeter, c chan Result) {
 
 	start := time.Now()
 	resp, err := http.Get(url)
@@ -25,7 +24,6 @@ func get_url(url string, wg *sync.WaitGroup, t *tachymeter.Tachymeter, c chan Re
 	}
 	elapsed := time.Since(start)
 
-	wg.Done()
 	t.AddTime(elapsed)
 
 	c <- Result{statusCode: resp.StatusCode, responseTime: elapsed}
@@ -59,13 +57,11 @@ func main() {
 
 	c := make(chan Result)
 	t := tachymeter.New(&tachymeter.Config{Size: *samplesPtr})
-	var wg sync.WaitGroup
 
 	fmt.Println("URL response analyzer.")
 	fmt.Printf("Taking %d concurrent samples of %s\n", *samplesPtr, url)
 	for i := 0; i < *samplesPtr; i++ {
-		wg.Add(1)
-		go get_url(url, &wg, t, c)
+		go get_url(url, t, c)
 
 	}
 
@@ -82,8 +78,6 @@ func main() {
 			ec++
 		}
 	}
-
-	wg.Wait()
 
 	metrics := t.Calc()
 	fmt.Printf("\nMax reponse time: %s\n", metrics.Time.Max)
