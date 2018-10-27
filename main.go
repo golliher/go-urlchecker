@@ -27,8 +27,6 @@ func get_url(url string, wg *sync.WaitGroup, t *tachymeter.Tachymeter, c chan Re
 
 	wg.Done()
 	t.AddTime(elapsed)
-	if resp.StatusCode != 200 {
-	}
 
 	c <- Result{statusCode: resp.StatusCode, responseTime: elapsed}
 
